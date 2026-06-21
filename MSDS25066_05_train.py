@@ -65,6 +65,12 @@ def forward_diffusion(x0, t, alpha_bars):
     # 4. Return both xt and the noise itself (you'll need the noise later for the loss function!)
     return xt, noise
 
+def custom_loss(predicted_noise, actual_noise):
+    difference = predicted_noise - actual_noise
+    squared_difference = difference ** 2
+    loss = squared_difference.mean()
+    return loss
+
 
 class TimeEmbedding(torch.nn.Module):
     def __init__(self, embedding_dim):
@@ -175,7 +181,7 @@ if __name__ == "__main__":
     plt.tight_layout()
     plt.savefig("forward_diffusion_test.png")
     print("Saved forward_diffusion_test.png — open it to check the progression")
-    
+
     model = UNet()
     test_batch = sample_image.unsqueeze(0)
     test_t = torch.tensor([500])
