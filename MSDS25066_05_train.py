@@ -73,10 +73,34 @@ def custom_loss(predicted_noise, actual_noise):
     return loss
 
 
+@torch.no_grad()
+def generate_image(model, alpha_bars, betas, alphas, T, device="cpu", image_size=64):
+    model.eval()
+    x = torch.randn((1, 3, image_size, image_size)).to(device)
+
+    for t_step in reversed(range(T)):
+        t = torch.tensor([t_step]).to(device)
+        predicted_noise = model(x, t)
+
+        alpha_t = alphas[t_step].to(device)
+        alpha_bar_t = alpha_bars[t_step].to(device)
+        beta_t = betas[t_step].to(device)
+
+        if t_step > 0:
+            noise = torch.randn_like(x)
+        else:
+            noise = torch.zeros_like(x)
+
+        x = (1 / torch.sqrt(alpha_t)) * (x - ((1 - alpha_t) / torch.sqrt(1 - alpha_bar_t)) * predicted_noise) + torch.sqrt(beta_t) * noise
+
+    model.train()
+    return x
+
 def train_model(model, dataset, epochs=5, batch_size=4, learning_rate=1e-4, device="cpu"):
     model = model.to(device)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+    loss_history = []
 
     for epoch in range(epochs):
         total_loss = 0.0
@@ -104,11 +128,12 @@ def train_model(model, dataset, epochs=5, batch_size=4, learning_rate=1e-4, devi
             total_loss += loss.item()
 
         avg_loss = total_loss / len(dataloader)
+        loss_history.append(avg_loss)
         print(f"Epoch {epoch+1}/{epochs} — Loss: {avg_loss:.4f}")
 
     torch.save(model.state_dict(), "saved_models/diffusion_model.pth")
     print("Model saved to saved_models/diffusion_model.pth")
-
+    return loss_history
 
 class TimeEmbedding(torch.nn.Module):
     def __init__(self, embedding_dim):
