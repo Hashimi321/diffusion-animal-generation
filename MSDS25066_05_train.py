@@ -97,6 +97,59 @@ class ConvBlock(torch.nn.Module):
         x = self.activation(x)
         return x
 
+class UNet(torch.nn.Module):
+    def __init__(self, time_embedding_dim=128):
+        super().__init__()
+        self.time_embedding = TimeEmbedding(time_embedding_dim)
+        self.time_proj = torch.nn.Linear(time_embedding_dim, time_embedding_dim)
+
+        # Down path
+        self.down1 = ConvBlock(3, 64)
+        self.pool1 = torch.nn.MaxPool2d(2)
+        self.down2 = ConvBlock(64, 128)
+        self.pool2 = torch.nn.MaxPool2d(2)
+
+        # Bottleneck
+        self.bottleneck = ConvBlock(128, 256)
+
+        # Up path
+        self.upsample1 = torch.nn.Upsample(scale_factor=2, mode="nearest")
+        self.up1 = ConvBlock(256 + 128, 128)
+        self.upsample2 = torch.nn.Upsample(scale_factor=2, mode="nearest")
+        self.up2 = ConvBlock(128 + 64, 64)
+
+        # Output
+        self.output_conv = torch.nn.Conv2d(64, 3, kernel_size=1)
+
+    def forward(self, x, t):
+        # Step A: turn timestep into a vector (not used inside ConvBlocks yet — kept simple for now)
+        t_embed = self.time_embedding(t)
+        t_embed = self.time_proj(t_embed)
+
+        # Step B: down path — shrink the image, remember each stage (skip connections)
+        skip1 = self.down1(x)
+        x = self.pool1(skip1)
+
+        skip2 = self.down2(x)
+        x = self.pool2(skip2)
+
+        # Step C: bottleneck — smallest, most compressed point
+        x = self.bottleneck(x)
+
+        # Step D: up path — grow the image back, reusing the skip connections
+        x = self.upsample1(x)
+        x = torch.cat([x, skip2], dim=1)
+        x = self.up1(x)
+
+        x = self.upsample2(x)
+        x = torch.cat([x, skip1], dim=1)
+        x = self.up2(x)
+
+        # Step E: final output — predicted noise, same shape as input image
+        x = self.output_conv(x)
+        return x
+    
+
 
 if __name__ == "__main__":
     classes = ["Bear", "Cat", "Dog", "Lion", "Tiger"]
@@ -122,3 +175,10 @@ if __name__ == "__main__":
     plt.tight_layout()
     plt.savefig("forward_diffusion_test.png")
     print("Saved forward_diffusion_test.png — open it to check the progression")
+    
+    model = UNet()
+    test_batch = sample_image.unsqueeze(0)
+    test_t = torch.tensor([500])
+    predicted_noise = model(test_batch, test_t)
+    print("Input shape:", test_batch.shape)
+    print("Predicted noise shape:", predicted_noise.shape)
