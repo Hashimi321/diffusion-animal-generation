@@ -117,7 +117,7 @@ class TimeEmbedding(torch.nn.Module):
 
     def forward(self, t):
          half_dim = self.embedding_dim // 2
-         freqs = torch.exp(-math.log(10000) * torch.arange(half_dim) / half_dim)
+         freqs = torch.exp(-math.log(10000) * torch.arange(half_dim, device=t.device) / half_dim)
          args = t[:, None].float() * freqs[None, :]
          embedding = torch.cat([torch.sin(args), torch.cos(args)], dim=-1)
          return embedding
