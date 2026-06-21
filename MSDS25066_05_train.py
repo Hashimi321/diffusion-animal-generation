@@ -149,18 +149,24 @@ class TimeEmbedding(torch.nn.Module):
 
 
 class ConvBlock(torch.nn.Module):
-    def __init__(self, in_channels, out_channels):
+    def __init__(self, in_channels, out_channels, time_embedding_dim):
         super().__init__()
         self.conv1 = torch.nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1)
         self.norm1 = torch.nn.GroupNorm(8, out_channels)
         self.conv2 = torch.nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1)
         self.norm2 = torch.nn.GroupNorm(8, out_channels)
         self.activation = torch.nn.SiLU()
+        self.time_proj = torch.nn.Linear(time_embedding_dim, out_channels)
 
-    def forward(self, x):
+    def forward(self, x, t_embed):
         x = self.conv1(x)
         x = self.norm1(x)
         x = self.activation(x)
+
+        t = self.time_proj(t_embed)
+        t = t[:, :, None, None]
+        x = x + t
+
         x = self.conv2(x)
         x = self.norm2(x)
         x = self.activation(x)
@@ -173,46 +179,46 @@ class UNet(torch.nn.Module):
         self.time_proj = torch.nn.Linear(time_embedding_dim, time_embedding_dim)
 
         # Down path
-        self.down1 = ConvBlock(3, 64)
+        self.down1 = ConvBlock(3, 64, time_embedding_dim)
         self.pool1 = torch.nn.MaxPool2d(2)
-        self.down2 = ConvBlock(64, 128)
+        self.down2 = ConvBlock(64, 128, time_embedding_dim)
         self.pool2 = torch.nn.MaxPool2d(2)
 
         # Bottleneck
-        self.bottleneck = ConvBlock(128, 256)
+        self.bottleneck = ConvBlock(128, 256, time_embedding_dim)
 
         # Up path
         self.upsample1 = torch.nn.Upsample(scale_factor=2, mode="nearest")
-        self.up1 = ConvBlock(256 + 128, 128)
+        self.up1 = ConvBlock(256 + 128, 128, time_embedding_dim)
         self.upsample2 = torch.nn.Upsample(scale_factor=2, mode="nearest")
-        self.up2 = ConvBlock(128 + 64, 64)
+        self.up2 = ConvBlock(128 + 64, 64, time_embedding_dim)
 
         # Output
         self.output_conv = torch.nn.Conv2d(64, 3, kernel_size=1)
 
     def forward(self, x, t):
-        # Step A: turn timestep into a vector (not used inside ConvBlocks yet — kept simple for now)
+        # Step A: turn timestep into a vector
         t_embed = self.time_embedding(t)
         t_embed = self.time_proj(t_embed)
 
         # Step B: down path — shrink the image, remember each stage (skip connections)
-        skip1 = self.down1(x)
+        skip1 = self.down1(x, t_embed)
         x = self.pool1(skip1)
 
-        skip2 = self.down2(x)
+        skip2 = self.down2(x, t_embed)
         x = self.pool2(skip2)
 
         # Step C: bottleneck — smallest, most compressed point
-        x = self.bottleneck(x)
+        x = self.bottleneck(x, t_embed)
 
         # Step D: up path — grow the image back, reusing the skip connections
         x = self.upsample1(x)
         x = torch.cat([x, skip2], dim=1)
-        x = self.up1(x)
+        x = self.up1(x, t_embed)
 
         x = self.upsample2(x)
         x = torch.cat([x, skip1], dim=1)
-        x = self.up2(x)
+        x = self.up2(x, t_embed)
 
         # Step E: final output — predicted noise, same shape as input image
         x = self.output_conv(x)
