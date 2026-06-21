@@ -2,6 +2,7 @@
 import os
 import torch
 from torch.utils.data import Dataset
+from torch.utils.data import DataLoader
 from torchvision import transforms
 from PIL import Image
 import matplotlib.pyplot as plt
@@ -70,6 +71,42 @@ def custom_loss(predicted_noise, actual_noise):
     squared_difference = difference ** 2
     loss = squared_difference.mean()
     return loss
+
+
+def train_model(model, dataset, epochs=5, batch_size=4, learning_rate=1e-4):
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+
+    for epoch in range(epochs):
+        total_loss = 0.0
+        for batch in dataloader:
+            batch_size_actual = batch.shape[0]
+            t = torch.randint(0, T, (batch_size_actual,))
+
+            xt_list = []
+            noise_list = []
+            for i in range(batch_size_actual):
+                xt, noise = forward_diffusion(batch[i], t[i], alpha_bars)
+                xt_list.append(xt)
+                noise_list.append(noise)
+            xt_batch = torch.stack(xt_list)
+            noise_batch = torch.stack(noise_list)
+
+            predicted_noise = model(xt_batch, t)
+            loss = custom_loss(predicted_noise, noise_batch)
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            total_loss += loss.item()
+
+        avg_loss = total_loss / len(dataloader)
+        print(f"Epoch {epoch+1}/{epochs} — Loss: {avg_loss:.4f}")
+
+    torch.save(model.state_dict(), "saved_models/diffusion_model.pth")
+    print("Model saved to saved_models/diffusion_model.pth")
+
 
 
 class TimeEmbedding(torch.nn.Module):
@@ -188,3 +225,6 @@ if __name__ == "__main__":
     predicted_noise = model(test_batch, test_t)
     print("Input shape:", test_batch.shape)
     print("Predicted noise shape:", predicted_noise.shape)
+    print("\nStarting training...")
+    train_dataset = AnimalDiffusionDataset(root_dir="animal_data", classes=classes, transform=image_transform)
+    train_model(model, train_dataset, epochs=2, batch_size=4, learning_rate=1e-4)
