@@ -227,8 +227,18 @@ class UNet(torch.nn.Module):
 
 
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Train a diffusion model on animal images")
+    parser.add_argument("--data_path", type=str, default="animal_data", help="Path to the dataset folder")
+    parser.add_argument("--epochs", type=int, default=50, help="Number of training epochs")
+    parser.add_argument("--batch_size", type=int, default=8, help="Training batch size")
+    parser.add_argument("--learning_rate", type=float, default=1e-4, help="Learning rate")
+    parser.add_argument("--images_per_class", type=int, default=20, help="Number of images to use per class")
+    args = parser.parse_args()
+
     classes = ["Bear", "Cat", "Dog", "Lion", "Tiger"]
-    dataset = AnimalDiffusionDataset(root_dir="animal_data", classes=classes, transform=image_transform)
+    dataset = AnimalDiffusionDataset(root_dir=args.data_path, classes=classes, images_per_class=args.images_per_class, transform=image_transform)
     print("Total images found:", len(dataset.image_paths))
     print("First 3 paths:", dataset.image_paths[:3])
     sample_image = dataset[0]
@@ -257,8 +267,9 @@ if __name__ == "__main__":
     predicted_noise = model(test_batch, test_t)
     print("Input shape:", test_batch.shape)
     print("Predicted noise shape:", predicted_noise.shape)
+
     print("\nStarting training...")
-    train_dataset = AnimalDiffusionDataset(root_dir="animal_data", classes=classes, transform=image_transform)
+    train_dataset = AnimalDiffusionDataset(root_dir=args.data_path, classes=classes, images_per_class=args.images_per_class, transform=image_transform)
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"\nUsing device: {device}")
-    train_model(model, train_dataset, epochs=2, batch_size=4, learning_rate=1e-4, device=device)
+    train_model(model, train_dataset, epochs=args.epochs, batch_size=args.batch_size, learning_rate=args.learning_rate, device=device)
