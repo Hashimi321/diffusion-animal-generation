@@ -5,7 +5,7 @@ from torch.utils.data import Dataset
 from torchvision import transforms
 from PIL import Image
 import matplotlib.pyplot as plt
-
+import math
 
 class AnimalDiffusionDataset(Dataset):
     def __init__(self, root_dir, classes, images_per_class=20, transform=None):
@@ -66,6 +66,37 @@ def forward_diffusion(x0, t, alpha_bars):
     return xt, noise
 
 
+class TimeEmbedding(torch.nn.Module):
+    def __init__(self, embedding_dim):
+        super().__init__()
+        self.embedding_dim = embedding_dim
+
+    def forward(self, t):
+         half_dim = self.embedding_dim // 2
+         freqs = torch.exp(-math.log(10000) * torch.arange(half_dim) / half_dim)
+         args = t[:, None].float() * freqs[None, :]
+         embedding = torch.cat([torch.sin(args), torch.cos(args)], dim=-1)
+         return embedding
+
+
+class ConvBlock(torch.nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super().__init__()
+        self.conv1 = torch.nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1)
+        self.norm1 = torch.nn.GroupNorm(8, out_channels)
+        self.conv2 = torch.nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1)
+        self.norm2 = torch.nn.GroupNorm(8, out_channels)
+        self.activation = torch.nn.SiLU()
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.norm1(x)
+        x = self.activation(x)
+        x = self.conv2(x)
+        x = self.norm2(x)
+        x = self.activation(x)
+        return x
+
 
 if __name__ == "__main__":
     classes = ["Bear", "Cat", "Dog", "Lion", "Tiger"]
@@ -77,18 +108,17 @@ if __name__ == "__main__":
     print("Min value:", sample_image.min().item())
     print("Max value:", sample_image.max().item())
 
+    test_timesteps = [0, 100, 300, 500, 700, 999]
+    fig, axes = plt.subplots(1, len(test_timesteps), figsize=(15, 3))
 
-test_timesteps = [0, 100, 300, 500, 700, 999]
-fig, axes = plt.subplots(1, len(test_timesteps), figsize=(15, 3))
+    for i, t in enumerate(test_timesteps):
+        xt, noise = forward_diffusion(sample_image, t, alpha_bars)
+        img_to_show = (xt.clamp(-1, 1) + 1) / 2
+        img_to_show = img_to_show.permute(1, 2, 0).numpy()
+        axes[i].imshow(img_to_show)
+        axes[i].set_title(f"t={t}")
+        axes[i].axis("off")
 
-for i, t in enumerate(test_timesteps):
-    xt, noise = forward_diffusion(sample_image, t, alpha_bars)
-    img_to_show = (xt.clamp(-1, 1) + 1) / 2
-    img_to_show = img_to_show.permute(1, 2, 0).numpy()
-    axes[i].imshow(img_to_show)
-    axes[i].set_title(f"t={t}")
-    axes[i].axis("off")
-
-plt.tight_layout()
-plt.savefig("forward_diffusion_test.png")
-print("Saved forward_diffusion_test.png — open it to check the progression")
+    plt.tight_layout()
+    plt.savefig("forward_diffusion_test.png")
+    print("Saved forward_diffusion_test.png — open it to check the progression")
